@@ -1,0 +1,304 @@
+---
+title: "Prediction Assignment"
+output: 
+  html_document:
+    keep_md: true
+---
+_Data Science / Machine Learning / Course Project_   
+_Andrey Komrakov_  
+_Dec 17 2016_  
+_Source files [https://github.com/kolfild26/Rmachinelearning](https://github.com/kolfild26/Rmachinelearning)_  
+
+The goal of this report is to build a prediction model, which can be used to estimate a quality of a certain type of physical activity based on a data, taken by accelerometers. Six participants have taken part in the survey. 
+More information is available here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har)
+
+### Setting up and loading packages
+
+The following packages should be installed fisrt:
+
+```{r}
+#install.packages('caret', dependencies=TRUE)
+#install.packages('parallel',dependencies=TRUE)
+```
+
+Then we could load all required libs.
+
+```{r settings, results='hide', message=F, warning=F}
+library(caret)
+library(parallel)
+library(foreach)
+library(iterators)
+library(doParallel)
+```
+
+### Loading a raw data
+The training data for this project are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r, echo=FALSE}
+setwd("D:\\R\\Machine Learning\\R_machinelearning_project")
+```
+
+Download them into R objects:
+
+```{r, cache=TRUE}
+original_training <- read.csv("pml-training.csv", sep = ",", header = TRUE)
+original_testing  <- read.csv("pml-testing.csv" , sep = ",", header = TRUE)
+```
+
+### Preparing data for the analysis
+
+First, we skip columns which does not make sense for the analysis:
+
+```{r, cache=TRUE}
+original_training <- original_training[,-c(1:7)]
+original_testing  <- original_testing [,-c(1:7)]
+```
+
+Obtained training dataset has 19622 rows and 153 columns:
+```{r, cache=TRUE}
+nrow(original_training);ncol(original_training)
+```
+Obtained testing dataset has 20 rows and 153 columns:
+```{r, cache=TRUE}
+nrow(original_testing);ncol(original_testing)
+```
+
+For the rest of variables we check, whether they have empty, missing or any kind of unsuitable values.
+By checking the numbers of NA values, we can notice that if a variable has NA values, a number of such is 19216.
+
+```{r, cache=TRUE}
+unique(apply(is.na(original_training), 2, sum))[2]
+unique(apply( (original_training == "" | original_training == "#DIV/0"), 2, sum))[2]
+```
+
+It's reasonable to leave them out of a model.
+
+```{r, cache=TRUE}
+is_not_missing <- apply( !(is.na(original_training)      |
+                             original_training == "" |
+                             original_training == "#DIV/0"), 2, sum) > 19622 - 19216
+
+original_training <- original_training[, is_not_missing]
+original_testing  <- original_testing [, is_not_missing]
+```
+
+### Model designing
+
+In order to build our prediction model, we split up the original training data set into two parts, which will be further referred as _**testing**_ and _**training**_. Be sure you first set _**seed()**_ to get the reproducible results.
+
+```{r}
+set.seed(26041986)
+```
+
+Using the _**createDataPartition()**_ function from the _**caret**_ package we 
+
+```{r, cache=TRUE}
+inTrain <- createDataPartition(y= original_training$classe, p = .6)[[1]]
+
+training <- original_training[inTrain, ]
+testing  <- original_training[-inTrain,]
+```
+
+Let's check, whether some of a potential predictors have very small variance. It could be done through the _**nearZeroVar()**_ function.
+
+```{r, cache=TRUE }
+length(nearZeroVar(training, allowParallel = TRUE))
+```
+
+We will use cross validation for each model, so we set up _**trainControl**_ to handle this.
+
+```{r, cache=TRUE}
+trcontrol <- trainControl(method= "cv", number= 10, allowParallel = TRUE)
+```
+
+Next we apply some methods and estimate their quality based on a _**testing**_ data set by comparing to the actual _**classe**_ variable, by the Accuracy characteristic. In most cases "Center" and "scale" preprocessing is used.
+
+To make the algoritms run faster, set up how many cores will be involved in the process.
+**Please, be careful with this, as this number depends on your PC. For my machine I allow 4 clusters in parallel. Also, don't forget to roll back, after finishing your analysis by running _stopCluster(cluster)_.**
+Refer [for details.](https://github.com/lgreski/datasciencectacontent/blob/master/markdown/pml-randomForestPerformance.md#step-4-de-register-parallel-processing-cluster)
+
+```{r}
+cluster  <- makeCluster(4)
+registerDoParallel(cluster)
+```
+
+#### Rpart Method (Recursive Partitioning and Regression Trees)
+
+```{r, cache=TRUE, message=F, warning=F}
+modelFitRP <- train(classe ~.,
+                  data = training,
+                  preProcess= c("center","scale"),
+                  method = "rpart")
+                  
+```
+
+```{r, cache=TRUE}
+pred_Rpart <- predict(modelFitRP ,testing)
+confusionMatrix(testing$classe, pred_Rpart)$overall
+```
+
+#### Random Forest
+
+```{r , cache=TRUE, message=FALSE, warning=FALSE}
+modelFitRF <- train(classe ~.,
+                    data = training,
+                    preProcess= c("center","scale"),
+                    method = "rf",
+                    trainControl = trcontrol
+)
+```
+
+```{r,cache=TRUE,message=FALSE, warning=FALSE }
+pred_RF     <- predict(modelFitRF,testing)
+confusionMatrix(testing$classe, pred_RF)$overall
+```
+
+#### Bagging (Bootstrap Aggregation)
+```{r, cache=TRUE, message=F, warning=F}
+modelFitBag <- train(classe ~.,
+                    data = training,
+                    preProcess= c("center","scale"),
+                    method = "treebag",
+                    trainControl = trcontrol
+)
+```
+
+```{r, cache=TRUE}
+pred_Bag <- predict(modelFitBag, testing)
+confusionMatrix(testing$classe, pred_Bag)$overall
+```
+
+#### GBM (Generalized Boosted Regression Models)
+
+```{r, cache=TRUE, message=F, warning=F, results='hide'}
+modelFitGBM <- train(classe ~.,
+                     data = training,
+                     preProcess= c("center","scale"),
+                     method = "gbm"
+)
+```
+
+```{r, cache=TRUE }
+pred_GBM <- predict(modelFitGBM,testing)
+confusionMatrix(testing$classe, pred_GBM)$overall
+```
+
+#### SVM (Support Vector Machine)
+
+```{r, cache=TRUE, message=F, warning=F}
+modelFitSVM <- train(classe ~.,
+                     data = training,
+                     preProcess= c("center","scale"),
+                     method = "svmRadial",
+                     trainControl = trcontrol
+)
+```
+
+```{r, cache=TRUE}
+pred_SVM <- predict(modelFitSVM,testing)
+confusionMatrix(testing$classe, pred_SVM)$overall
+```
+
+#### Naive Bayes
+
+```{r, cache=TRUE, message=F, warning=F}
+modelFitNB <- train(classe ~.,
+                     data = training,
+                     preProcess= c("center","scale"),
+                     method = "nb",
+                     trainControl = trcontrol
+)
+```
+
+```{r, cache=TRUE, message=F, warning=F}
+pred_NB <- predict(modelFitNB,testing)
+confusionMatrix(testing$classe, pred_NB)$overall
+```
+
+Look at the obtained Accuracy characteristics for each model:
+
+```{r, echo =FALSE, cache=TRUE}
+
+data.frame(
+confusionMatrix(testing$classe, pred_Rpart)$overall[1],
+
+confusionMatrix(testing$classe, pred_RF)$overall[1],
+
+confusionMatrix(testing$classe, pred_Bag)$overall[1],
+
+confusionMatrix(testing$classe, pred_GBM)$overall[1],
+
+confusionMatrix(testing$classe, pred_SVM)$overall[1],
+
+confusionMatrix(testing$classe, pred_NB)$overall[1]
+)
+```
+
+It's reasonable to consider _**rpart**_ and _**Naive Bayes**_ models as not competitive, because their accuracies are too low, compared to the others.
+
+#### Combining Predictors
+Build a final model, in which we combine 4 successful models Random Forest, Bagging, GBM and SVM.
+
+```{r, cache=TRUE, message=F, warning=F}
+combDF_training <- data.frame(pred_RF = pred_RF,
+                              pred_SVM= pred_SVM,
+                              pred_GBM= pred_GBM,
+                              pred_Bag= pred_Bag,
+                              classe = testing$classe )
+                     
+combModFit <- train(classe ~.,
+                    data = combDF_training,
+                    preProcess= c("center","scale"),
+                    method = "rf",
+                    trainControl = trcontrol
+)
+```
+
+Check the quality of the result:
+
+```{r, cache=TRUE}
+combPred_training <- predict(combModFit, combDF_training)
+confusionMatrix(combDF_training$classe, combPred_training)$overall[1]
+```
+
+```{r, echo=FALSE, cache=TRUE}
+acc <- round(confusionMatrix(combDF_training$classe, combPred_training)$overall[1],3)
+```
+
+As we see, combined model gives the result of `r acc` Accuracy, so it could be applied to a assignment.
+First, we need to create a testing dataset.
+
+```{r, cache=TRUE, message=F, warning=F}
+pred_RF_assignment  <- predict(modelFitGBM, original_testing[,-53])
+pred_SVM_assignment <- predict(modelFitGBM, original_testing[,-53])
+pred_GBM_assignment <- predict(modelFitGBM, original_testing[,-53])
+pred_Bag_assignment <- predict(modelFitGBM, original_testing[,-53])
+```
+
+```{r, cache=TRUE, message=F, warning=F}
+combDF_testing <- data.frame(pred_RF = pred_RF_assignment,
+                             pred_SVM= pred_SVM_assignment,
+                             pred_GBM= pred_GBM_assignment,
+                             pred_Bag= pred_Bag_assignment)
+```
+
+```{r, cache=TRUE, results='hide'}
+pred_Comb_assignment <-  predict(combModFit, combDF_testing)
+```
+```{r, cache=TRUE, echo=FALSE}
+predict(combModFit, combDF_testing)
+```
+
+This is a 100% result in the course project prediction quiz.
+One can say that combining predictors is a bit far fetched as Random Forest, GBM and Bagging also give 100% result. 
+Indeed:
+```{r, cache=TRUE, message=F, warning=F}
+confusionMatrix(pred_RF_assignment,pred_Comb_assignment)$overall[1]
+```
+
+It's not a surprise, as a combined model was just a thousandth part of a percent better on a testing sample. Given only 20 cases in a quiz sample, such small defference gives no benefit. But if we had much more cases, we could win the bid.
+
