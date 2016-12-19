@@ -7,7 +7,7 @@ output:
 _Data Science / Machine Learning / Course Project_   
 _Andrey Komrakov_  
 _Dec 17 2016_  
-_Source files [https://github.com/kolfild26/Rmachinelearning](https://github.com/kolfild26/Rmachinelearning)_  
+_Source files [https://github.com/kolfild26/R_machinelearning_project](https://github.com/kolfild26/R_machinelearning_project)_  
 
 The goal of this report is to build a prediction model, which can be used to estimate a quality of a certain type of physical activity based on a data, taken by accelerometers. Six participants have taken part in the survey. 
 More information is available here: [http://groupware.les.inf.puc-rio.br/har](http://groupware.les.inf.puc-rio.br/har)
