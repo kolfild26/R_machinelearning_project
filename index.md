@@ -1,6 +1,6 @@
 # Prediction Assignment
 _Data Science / Machine Learning / Course Project_   
-_Andrey Komrakov_  
+_[Andrey Komrakov](https://www.linkedin.com/in/andkomrakov)_  
 _Dec 17 2016_  
 _Source files [https://github.com/kolfild26/R_machinelearning_project/tree/gh-pages](https://github.com/kolfild26/R_machinelearning_project/tree/gh-pages)_  
 
